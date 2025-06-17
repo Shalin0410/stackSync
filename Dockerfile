@@ -23,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN pip install flask pandas numpy
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 # Install nsjail from source
 RUN git clone https://github.com/google/nsjail.git /opt/nsjail && \
@@ -31,7 +32,7 @@ RUN git clone https://github.com/google/nsjail.git /opt/nsjail && \
     make && \
     cp nsjail /usr/local/bin/
 
-# Copy app code
+# Copy app code and nsjail config
 COPY app.py .
 COPY nsjail.cfg .
 
