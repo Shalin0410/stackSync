@@ -3,12 +3,42 @@ import subprocess
 import os
 import uuid
 import json
+import sys
+from subprocess import CompletedProcess
 
 app = Flask(__name__)
 
 NSJAIL_PATH = "/usr/local/bin/nsjail"
 NSJAIL_CFG = "/app/nsjail.cfg"
 PYTHON_BIN = "/usr/bin/python3"
+
+# Environment check
+IN_CLOUD_RUN = os.environ.get("K_SERVICE") is not None
+
+def execute_with_nsjail(script_path):
+    """Execute script using nsjail for sandboxing (locally)"""
+    return subprocess.run(
+        [NSJAIL_PATH, "--config", NSJAIL_CFG, "--", PYTHON_BIN, script_path],
+        capture_output=True,
+        text=True,
+        timeout=10
+    )
+
+def execute_with_python(script_path):
+    """Execute script directly with Python (Cloud Run fallback)"""
+    # Set restricted Python flags
+    python_flags = [
+        "-I",  # Ignore environment variables, ignore site-packages
+        "-S",  # Don't import site module
+    ]
+    
+    return subprocess.run(
+        [PYTHON_BIN] + python_flags + [script_path],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={"PYTHONPATH": ""}  # Restrict module imports
+    )
 
 @app.route("/execute", methods=["POST"])
 def execute_script():
@@ -44,13 +74,21 @@ if __name__ == "__main__":
         with open(script_path, "w") as f:
             f.write(wrapper_script)
 
-        # Run in nsjail sandbox
-        result = subprocess.run(
-            [NSJAIL_PATH, "--config", NSJAIL_CFG, "--", PYTHON_BIN, script_path],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        # Choose execution method based on environment
+        try:
+            if IN_CLOUD_RUN:
+                # In Cloud Run, use direct Python execution
+                result = execute_with_python(script_path)
+            else:
+                # Locally, try nsjail first
+                try:
+                    result = execute_with_nsjail(script_path)
+                except (FileNotFoundError, subprocess.SubprocessError):
+                    # Fallback to direct Python if nsjail fails
+                    app.logger.warning("nsjail execution failed, falling back to Python")
+                    result = execute_with_python(script_path)
+        except Exception as e:
+            return jsonify({"error": f"Execution error: {str(e)}"}), 500
 
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()

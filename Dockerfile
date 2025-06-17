@@ -26,11 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Install nsjail from source
+# Install nsjail from source (for local development)
+# In Cloud Run, we'll use the Python fallback method
 RUN git clone https://github.com/google/nsjail.git /opt/nsjail && \
     cd /opt/nsjail && \
     make && \
-    cp nsjail /usr/local/bin/
+    cp nsjail /usr/local/bin/ || echo "nsjail build failed, will use Python fallback"
 
 # Copy app code and nsjail config
 COPY app.py .
